@@ -5,14 +5,14 @@ After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
-Type=dbus
-BusName=org.kde.rdpdisplayswitcher
+Type=simple
 ExecStart=/usr/bin/python3 /usr/share/rdp-display-switcher/rdp-display-manager.py
 Restart=on-failure
 RestartSec=5
 
-# Environment for Wayland/KDE
-Environment=QT_QPA_PLATFORM=wayland
+# Import the full user session environment (needed for Wayland/KDE access)
+ImportCredential=*
+PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
 [Install]
 WantedBy=graphical-session.target

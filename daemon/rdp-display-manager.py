@@ -42,7 +42,7 @@ DBUS_INTERFACE = "org.kde.rdpdisplayswitcher"
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
@@ -591,6 +591,14 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 text=True,
                 timeout=10
             )
+
+            # Debug: log raw output
+            logger.debug(f"kscreen-doctor returncode: {result.returncode}")
+            logger.debug(f"kscreen-doctor stdout length: {len(result.stdout)}")
+            logger.debug(f"kscreen-doctor stderr: {result.stderr}")
+            if result.stdout:
+                logger.debug(f"kscreen-doctor first 200 chars: {result.stdout[:200]}")
+
             if result.returncode != 0:
                 logger.error(f"kscreen-doctor failed: {result.stderr}")
                 return json.dumps([])
