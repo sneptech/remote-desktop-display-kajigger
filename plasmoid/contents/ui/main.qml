@@ -240,14 +240,21 @@ PlasmoidItem {
     fullRepresentation: PlasmaExtras.Representation {
         id: fullRep
 
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 20
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 18
-        Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 24
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 16
+        leftPadding: Kirigami.Units.largeSpacing
+        rightPadding: Kirigami.Units.largeSpacing
+        topPadding: Kirigami.Units.smallSpacing
+        bottomPadding: Kirigami.Units.smallSpacing
 
         header: PlasmaExtras.PlasmoidHeading {
-            RowLayout {
-                anchors.fill: parent
+            leftPadding: Kirigami.Units.largeSpacing
+            rightPadding: Kirigami.Units.largeSpacing
+            topPadding: Kirigami.Units.smallSpacing
+            bottomPadding: Kirigami.Units.smallSpacing
+
+            contentItem: RowLayout {
+                spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Icon {
                     source: root.stateIcon
@@ -278,45 +285,112 @@ PlasmoidItem {
         contentItem: ColumnLayout {
             spacing: Kirigami.Units.smallSpacing
 
-            PlasmaExtras.Heading {
-                level: 4
-                text: "Status"
-            }
-
-            Kirigami.FormLayout {
+            RowLayout {
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
 
-                PlasmaComponents.Label {
-                    Kirigami.FormData.label: "Daemon:"
-                    text: root.daemonRunning ? "Running" : "Not running"
-                    color: root.daemonRunning ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.negativeTextColor
-                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    spacing: Kirigami.Units.smallSpacing
 
-                PlasmaComponents.Label {
-                    Kirigami.FormData.label: "State:"
-                    text: root.daemonState
-                }
+                    PlasmaExtras.Heading {
+                        level: 4
+                        text: "Status"
+                    }
 
-                PlasmaComponents.Label {
-                    Kirigami.FormData.label: "Display mode:"
-                    text: root.remoteActive ? "Single (Remote)" : "Extended (Normal)"
-                    color: root.remoteActive ? Kirigami.Theme.neutralTextColor : Kirigami.Theme.textColor
-                }
+                    Kirigami.FormLayout {
+                        Layout.fillWidth: true
 
-                PlasmaComponents.Label {
-                    Kirigami.FormData.label: "Connections:"
-                    text: {
-                        let parts = []
-                        if (root.rdpConnections > 0) parts.push(root.rdpConnections + " RDP")
-                        if (root.vncConnections > 0) parts.push(root.vncConnections + " VNC")
-                        return parts.length > 0 ? parts.join(", ") : "None"
+                        PlasmaComponents.Label {
+                            Kirigami.FormData.label: "Daemon:"
+                            text: root.daemonRunning ? "Running" : "Not running"
+                            color: root.daemonRunning ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.negativeTextColor
+                        }
+
+                        PlasmaComponents.Label {
+                            Kirigami.FormData.label: "State:"
+                            text: root.daemonState
+                        }
+
+                        PlasmaComponents.Label {
+                            Kirigami.FormData.label: "Display mode:"
+                            text: root.remoteActive ? "Single (Remote)" : "Extended (Normal)"
+                            color: root.remoteActive ? Kirigami.Theme.neutralTextColor : Kirigami.Theme.textColor
+                        }
+
+                        PlasmaComponents.Label {
+                            Kirigami.FormData.label: "Connections:"
+                            text: {
+                                let parts = []
+                                if (root.rdpConnections > 0) parts.push(root.rdpConnections + " RDP")
+                                if (root.vncConnections > 0) parts.push(root.vncConnections + " VNC")
+                                return parts.length > 0 ? parts.join(", ") : "None"
+                            }
+                        }
+
+                        PlasmaComponents.Label {
+                            Kirigami.FormData.label: "Keep enabled:"
+                            text: root.keepOutput
+                            font.bold: true
+                        }
                     }
                 }
 
-                PlasmaComponents.Label {
-                    Kirigami.FormData.label: "Keep enabled:"
-                    text: root.keepOutput
-                    font.bold: true
+                ColumnLayout {
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 8
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 9
+                    Layout.alignment: Qt.AlignTop
+                    spacing: Kirigami.Units.smallSpacing
+
+                    PlasmaExtras.Heading {
+                        level: 4
+                        text: "Controls"
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        PlasmaComponents.Button {
+                            text: "Switch to Remote"
+                            icon.name: "computer"
+                            enabled: root.daemonRunning && !root.remoteActive && root.daemonState === "IDLE"
+                            Layout.fillWidth: true
+                            topPadding: Kirigami.Units.smallSpacing
+                            bottomPadding: Kirigami.Units.smallSpacing
+                            leftPadding: Kirigami.Units.largeSpacing
+                            rightPadding: Kirigami.Units.largeSpacing
+                            onClicked: switchNow()
+                        }
+
+                        PlasmaComponents.Button {
+                            text: "Restore Displays"
+                            icon.name: "view-restore"
+                            enabled: root.daemonRunning && root.remoteActive
+                            Layout.fillWidth: true
+                            topPadding: Kirigami.Units.smallSpacing
+                            bottomPadding: Kirigami.Units.smallSpacing
+                            leftPadding: Kirigami.Units.largeSpacing
+                            rightPadding: Kirigami.Units.largeSpacing
+                            onClicked: restoreNow()
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        PlasmaComponents.Label {
+                            text: "Auto-switching"
+                            Layout.fillWidth: true
+                        }
+
+                        PlasmaComponents.Switch {
+                            checked: root.daemonEnabled
+                            enabled: root.daemonRunning
+                            onToggled: toggleEnabled()
+                        }
+                    }
                 }
             }
 
@@ -329,14 +403,27 @@ PlasmoidItem {
                 text: "Displays"
             }
 
-            PlasmaComponents.Button {
-                text: root.scanningDisplays ? "Scanning..." : "Scan Displays"
-                icon.name: "view-refresh"
-                enabled: !root.scanningDisplays
+            RowLayout {
                 Layout.fillWidth: true
-                onClicked: {
-                    root.scanningDisplays = true
-                    requestDisplayScan()
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Button {
+                    text: root.scanningDisplays ? "Scanning..." : "Scan Displays"
+                    icon.name: "view-refresh"
+                    enabled: !root.scanningDisplays
+                    Layout.fillWidth: true
+                    onClicked: {
+                        root.scanningDisplays = true
+                        requestDisplayScan()
+                    }
+                }
+
+                PlasmaComponents.Button {
+                    text: "Refresh"
+                    icon.name: "view-refresh"
+                    flat: true
+                    Layout.fillWidth: true
+                    onClicked: refreshStatus()
                 }
             }
 
@@ -436,53 +523,6 @@ PlasmoidItem {
                 horizontalAlignment: Text.AlignHCenter
             }
 
-            Kirigami.Separator {
-                Layout.fillWidth: true
-            }
-
-            PlasmaExtras.Heading {
-                level: 4
-                text: "Controls"
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-
-                PlasmaComponents.Label {
-                    text: "Automatic switching"
-                    Layout.fillWidth: true
-                }
-
-                PlasmaComponents.Switch {
-                    checked: root.daemonEnabled
-                    enabled: root.daemonRunning
-                    onToggled: toggleEnabled()
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents.Button {
-                    text: "Switch to Remote"
-                    icon.name: "computer"
-                    enabled: root.daemonRunning && !root.remoteActive && root.daemonState === "IDLE"
-                    Layout.fillWidth: true
-                    onClicked: switchNow()
-                }
-
-                PlasmaComponents.Button {
-                    text: "Restore Displays"
-                    icon.name: "view-restore"
-                    enabled: root.daemonRunning && root.remoteActive
-                    Layout.fillWidth: true
-                    onClicked: restoreNow()
-                }
-            }
-
-            Item { Layout.fillHeight: true }
-
             RowLayout {
                 Layout.fillWidth: true
 
@@ -494,13 +534,6 @@ PlasmoidItem {
                 }
 
                 Item { Layout.fillWidth: true }
-
-                PlasmaComponents.Button {
-                    text: "Refresh"
-                    icon.name: "view-refresh"
-                    flat: true
-                    onClicked: refreshStatus()
-                }
             }
         }
     }
