@@ -14,15 +14,15 @@ When using RDP or VNC to connect to a multi-monitor Linux desktop, the remote se
 This tool detects incoming RDP/VNC connections and automatically:
 1. Saves your current display configuration
 2. Disconnects the remote session briefly
-3. Disables secondary display(s)
-4. Allows reconnection with only the primary display active
+3. Disables all other display(s)
+4. Allows reconnection with only the chosen display active
 
 When you disconnect, it restores your original multi-monitor setup.
 
 ## Features
 
 - Automatic detection of RDP and VNC connections
-- Configurable secondary display selection
+- Configurable display-to-keep selection
 - System tray plasmoid with status indicators
 - Manual switch/restore controls
 - Survives daemon restarts and system reboots
@@ -78,7 +78,7 @@ systemctl --user enable --now rdp-display-manager
 ### Configuration
 
 Right-click the plasmoid and select "Configure" to set:
-- Secondary display output name (e.g., HDMI-A-1)
+- Display output to keep enabled (e.g., HDMI-A-1)
 - RDP/VNC ports to monitor
 - Debounce timing
 - Notification preferences
@@ -93,9 +93,9 @@ IDLE -> DETECTED -> SWITCHING -> REMOTE_ACTIVE -> RESTORING -> IDLE
 
 1. **IDLE**: Monitoring for connections
 2. **DETECTED**: Connection found, waiting for debounce
-3. **SWITCHING**: Saving config and disabling secondary display
+3. **SWITCHING**: Saving config and disabling other displays
 4. **REMOTE_ACTIVE**: Single-display mode active
-5. **RESTORING**: Reconnecting secondary display
+5. **RESTORING**: Restoring original displays
 
 ### Why Disconnect and Reconnect?
 
@@ -126,6 +126,9 @@ qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher SwitchNow
 
 # Manual restore
 qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher RestoreNow
+
+# Set display to keep enabled during remote sessions
+qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher SetKeepOutput DP-1
 ```
 
 ## Project Structure
@@ -169,7 +172,7 @@ journalctl --user -u rdp-display-manager -f
    kscreen-doctor -o
    ```
 
-2. Check the secondary output name matches your configuration
+2. Check the keep output name matches your configuration
 
 3. Ensure the daemon can detect connections:
    ```bash

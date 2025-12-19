@@ -29,6 +29,7 @@ from gi.repository import GLib
 # Configuration
 POLL_INTERVAL = 2  # seconds
 DEBOUNCE_TIME = 3  # seconds - wait before acting on connection changes
+DEFAULT_KEEP_OUTPUT = "HDMI-A-1"
 STATE_FILE = Path.home() / ".local/state/rdp-display-switcher/state.json"
 CONFIG_FILE = Path.home() / ".config/rdp-display-switcher/config.json"
 CACHE_DIR = Path("/tmp/rdp-display-switcher")
@@ -103,8 +104,8 @@ class State(Enum):
 class DisplayConfig:
     """Manages display configuration using kscreen-doctor"""
 
-    def __init__(self, secondary_output: str = "HDMI-A-1"):
-        self.secondary_output = secondary_output
+    def __init__(self, keep_output: str = DEFAULT_KEEP_OUTPUT):
+        self.keep_output = keep_output
         self.saved_config: Optional[dict] = None
 
     def get_current_config(self) -> dict:
@@ -148,7 +149,8 @@ class DisplayConfig:
         with open(STATE_FILE, 'w') as f:
             json.dump({
                 "saved_config": self.saved_config,
-                "secondary_output": self.secondary_output,
+                "keep_output": self.keep_output,
+                "secondary_output": self.keep_output,
                 "timestamp": time.time()
             }, f, indent=2)
 
@@ -159,6 +161,9 @@ class DisplayConfig:
                 with open(STATE_FILE) as f:
                     data = json.load(f)
                     self.saved_config = data.get("saved_config")
+                    keep_output = data.get("keep_output") or data.get("secondary_output")
+                    if keep_output:
+                        self.keep_output = keep_output
                     return self.saved_config is not None
             except (json.JSONDecodeError, IOError) as e:
                 logger.error(f"Failed to load state file: {e}")
@@ -169,24 +174,54 @@ class DisplayConfig:
         if STATE_FILE.exists():
             STATE_FILE.unlink()
 
-    def disable_secondary(self) -> bool:
-        """Disable the secondary display"""
+    def disable_other_outputs(self) -> bool:
+        """Disable all outputs except the keep_output"""
+        config = self.saved_config or self.get_current_config()
+        outputs = config.get("outputs", []) if config else []
+        if not outputs:
+            logger.error("No outputs found in display config")
+            return False
+
+        keep_entry = next(
+            (output for output in outputs if output.get("name") == self.keep_output),
+            None
+        )
+        if not keep_entry:
+            logger.error(f"Keep output {self.keep_output} not found in display config")
+            return False
+        if keep_entry.get("enabled") is False:
+            logger.error(f"Keep output {self.keep_output} is disabled; aborting switch")
+            return False
+
+        commands = []
+        for output in outputs:
+            name = output.get("name")
+            if not name or name == self.keep_output:
+                continue
+            if output.get("enabled") is False:
+                continue
+            commands.append(f"output.{name}.disable")
+
+        if not commands:
+            logger.info("No other outputs to disable")
+            return True
+
         try:
             result = subprocess.run(
-                ["kscreen-doctor", f"output.{self.secondary_output}.disable"],
+                ["kscreen-doctor"] + commands,
                 capture_output=True,
                 text=True,
                 env=_build_kscreen_env(),
                 timeout=10
             )
             if result.returncode == 0:
-                logger.info(f"Disabled {self.secondary_output}")
+                logger.info(f"Disabled outputs: {', '.join(cmd.split('.')[1] for cmd in commands)}")
                 return True
             else:
-                logger.error(f"Failed to disable display: {result.stderr}")
+                logger.error(f"Failed to disable outputs: {result.stderr}")
                 return False
         except subprocess.TimeoutExpired:
-            logger.error("kscreen-doctor timed out while disabling display")
+            logger.error("kscreen-doctor timed out while disabling outputs")
             return False
         except FileNotFoundError:
             logger.error("kscreen-doctor not found")
@@ -200,32 +235,33 @@ class DisplayConfig:
                 logger.warning("No saved configuration to restore")
                 return False
 
-        # Find the secondary output configuration
         outputs = self.saved_config.get("outputs", [])
-        secondary = None
-        for output in outputs:
-            if output.get("name") == self.secondary_output:
-                secondary = output
-                break
-
-        if not secondary:
-            logger.error(f"Secondary output {self.secondary_output} not found in saved config")
+        if not outputs:
+            logger.error("No outputs found in saved config")
             return False
 
-        # Build the kscreen-doctor command to restore
-        # Example: output.HDMI-A-1.enable output.HDMI-A-1.position.0,-1080 output.HDMI-A-1.mode.1920x1080@60
-        commands = [f"output.{self.secondary_output}.enable"]
+        # Build the kscreen-doctor command to restore all outputs
+        commands = []
+        for output in outputs:
+            name = output.get("name")
+            if not name:
+                continue
+            enabled = output.get("enabled", False)
+            commands.append(f"output.{name}.enable" if enabled else f"output.{name}.disable")
 
-        pos = secondary.get("pos", {})
-        if pos:
-            commands.append(f"output.{self.secondary_output}.position.{pos.get('x', 0)},{pos.get('y', 0)}")
+            if not enabled:
+                continue
 
-        mode = secondary.get("currentMode", {})
-        if mode:
-            width = mode.get("width", 1920)
-            height = mode.get("height", 1080)
-            refresh = mode.get("refreshRate", 60)
-            commands.append(f"output.{self.secondary_output}.mode.{width}x{height}@{int(refresh)}")
+            pos = output.get("pos", {})
+            if pos:
+                commands.append(f"output.{name}.position.{pos.get('x', 0)},{pos.get('y', 0)}")
+
+            mode = output.get("currentMode", {})
+            if mode:
+                width = mode.get("width", 1920)
+                height = mode.get("height", 1080)
+                refresh = mode.get("refreshRate", 60)
+                commands.append(f"output.{name}.mode.{width}x{height}@{int(refresh)}")
 
         try:
             result = subprocess.run(
@@ -236,7 +272,7 @@ class DisplayConfig:
                 timeout=10
             )
             if result.returncode == 0:
-                logger.info(f"Restored display configuration for {self.secondary_output}")
+                logger.info("Restored display configuration")
                 self._clear_disk_state()
                 self.saved_config = None
                 return True
@@ -394,7 +430,8 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 "state": self.state.name,
                 "enabled": self.enabled,
                 "remoteActive": self.state == State.REMOTE_ACTIVE,
-                "secondaryOutput": self.display_config.secondary_output,
+                "keepOutput": self.display_config.keep_output,
+                "secondaryOutput": self.display_config.keep_output,
                 "rdpConnections": len(connections["rdp"]),
                 "vncConnections": len(connections["vnc"])
             }
@@ -417,9 +454,10 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 with open(CONFIG_FILE) as f:
                     config = json.load(f)
                     self.enabled = config.get("enabled", True)
-                    self.display_config.secondary_output = config.get(
-                        "secondary_output", "HDMI-A-1"
+                    keep_output = config.get("keep_output") or config.get(
+                        "secondary_output", DEFAULT_KEEP_OUTPUT
                     )
+                    self.display_config.keep_output = keep_output
                     self.connection_monitor.rdp_ports = config.get(
                         "rdp_ports", [3389]
                     )
@@ -434,7 +472,8 @@ class RdpDisplaySwitcherService(dbus.service.Object):
         """Save configuration to disk"""
         config = {
             "enabled": self.enabled,
-            "secondary_output": self.display_config.secondary_output,
+            "keep_output": self.display_config.keep_output,
+            "secondary_output": self.display_config.keep_output,
             "rdp_ports": self.connection_monitor.rdp_ports,
             "vnc_ports": self.connection_monitor.vnc_ports
         }
@@ -443,6 +482,12 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 json.dump(config, f, indent=2)
         except IOError as e:
             logger.error(f"Failed to save config: {e}")
+
+    def _set_keep_output(self, output: str):
+        """Set the output to keep enabled during remote sessions"""
+        self.display_config.keep_output = output
+        self._save_config()
+        logger.info(f"Keep output set to: {output}")
 
     def _check_crash_recovery(self):
         """Check if we need to recover from a crash during remote session"""
@@ -515,13 +560,13 @@ class RdpDisplaySwitcherService(dbus.service.Object):
         # Brief pause to let sessions terminate
         time.sleep(1)
 
-        # Disable secondary display
-        if self.display_config.disable_secondary():
-            logger.info("Switched to remote mode - secondary display disabled")
+        # Disable all outputs except the keep output
+        if self.display_config.disable_other_outputs():
+            logger.info("Switched to remote mode - other displays disabled")
             self._transition_to(State.REMOTE_ACTIVE)
             self.RemoteModeChanged(True)
         else:
-            logger.error("Failed to disable secondary display")
+            logger.error("Failed to disable other displays")
             self._transition_to(State.IDLE)
 
     def _restore_displays(self):
@@ -610,16 +655,24 @@ class RdpDisplaySwitcherService(dbus.service.Object):
             self._restore_displays()
 
     @dbus.service.method(DBUS_INTERFACE, in_signature='s')
+    def SetKeepOutput(self, output: str):
+        """Set the output to keep enabled during remote sessions"""
+        self._set_keep_output(output)
+
+    @dbus.service.method(DBUS_INTERFACE, out_signature='s')
+    def GetKeepOutput(self) -> str:
+        """Get the output name kept enabled during remote sessions"""
+        return self.display_config.keep_output
+
+    @dbus.service.method(DBUS_INTERFACE, in_signature='s')
     def SetSecondaryOutput(self, output: str):
-        """Set the secondary output to manage"""
-        self.display_config.secondary_output = output
-        self._save_config()
-        logger.info(f"Secondary output set to: {output}")
+        """Deprecated: use SetKeepOutput"""
+        self._set_keep_output(output)
 
     @dbus.service.method(DBUS_INTERFACE, out_signature='s')
     def GetSecondaryOutput(self) -> str:
-        """Get the secondary output name"""
-        return self.display_config.secondary_output
+        """Deprecated: use GetKeepOutput"""
+        return self.display_config.keep_output
 
     @dbus.service.method(DBUS_INTERFACE, out_signature='s')
     def GetDisplays(self) -> str:
@@ -721,7 +774,8 @@ class RdpDisplaySwitcherService(dbus.service.Object):
             "state": self.state.name,
             "enabled": self.enabled,
             "remoteActive": self.state == State.REMOTE_ACTIVE,
-            "secondaryOutput": self.display_config.secondary_output,
+            "keepOutput": self.display_config.keep_output,
+            "secondaryOutput": self.display_config.keep_output,
             "rdpConnections": len(connections["rdp"]),
             "vncConnections": len(connections["vnc"])
         })

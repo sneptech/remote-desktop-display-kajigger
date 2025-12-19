@@ -6,8 +6,8 @@
   <kcfgfile name=""/>
 
   <group name="General">
-    <entry name="secondaryOutput" type="String">
-      <label>Secondary display output name</label>
+    <entry name="keepOutput" type="String">
+      <label>Display output to keep enabled</label>
       <default>HDMI-A-1</default>
     </entry>
     <entry name="rdpPorts" type="String">

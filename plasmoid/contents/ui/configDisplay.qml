@@ -12,7 +12,7 @@ import org.kde.kcmutils as KCM
 KCM.SimpleKCM {
     id: configDisplay
 
-    property alias cfg_secondaryOutput: secondaryOutputField.text
+    property alias cfg_keepOutput: keepOutputField.text
 
     Kirigami.FormLayout {
         anchors.fill: parent
@@ -23,13 +23,13 @@ KCM.SimpleKCM {
         }
 
         QQC2.TextField {
-            id: secondaryOutputField
-            Kirigami.FormData.label: i18n("Secondary display:")
+            id: keepOutputField
+            Kirigami.FormData.label: i18n("Display to keep:")
             placeholderText: "HDMI-A-1"
         }
 
         QQC2.Label {
-            text: i18n("The display output name that will be disabled during remote sessions.\nCommon names: HDMI-A-1, HDMI-A-2, DP-1, DP-2, DP-3")
+            text: i18n("The output name that will remain enabled during remote sessions.\nCommon names: HDMI-A-1, HDMI-A-2, DP-1, DP-2, DP-3")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             opacity: 0.7
             Layout.fillWidth: true

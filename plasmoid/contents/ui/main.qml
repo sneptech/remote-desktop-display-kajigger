@@ -10,6 +10,7 @@ import QtQuick.Controls as QQC2
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
+import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
@@ -22,8 +23,10 @@ PlasmoidItem {
     property int rdpConnections: 0
     property int vncConnections: 0
     property bool daemonRunning: false
-    property string secondaryOutput: "HDMI-A-1"
+    property string keepOutput: "HDMI-A-1"
     property bool scanningDisplays: false
+    property string pendingKeepOutput: ""
+    property int pendingKeepOutputDeadline: 0
 
     // File paths for daemon communication
     // The daemon writes status to these files, plasmoid reads them
@@ -34,6 +37,28 @@ PlasmoidItem {
     // Display list model
     ListModel {
         id: displayModel
+    }
+
+    Plasma5Support.DataSource {
+        id: execSource
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            if (data) {
+                let keys = Object.keys(data)
+                if (keys.length > 0) {
+                    let parts = []
+                    for (let i = 0; i < keys.length; i++) {
+                        parts.push(keys[i] + "=" + data[keys[i]])
+                    }
+                    console.log("Command result: " + sourceName + " -> " + parts.join(", "))
+                }
+            }
+            if (sourceName) {
+                disconnectSource(sourceName)
+            }
+        }
     }
 
     // Read JSON file helper
@@ -59,7 +84,11 @@ PlasmoidItem {
             fullCmd += " " + args
         }
         console.log("Sending command: " + fullCmd)
-        // We'll trigger this via the daemon's file watcher or periodic check
+        if (!execSource.valid) {
+            console.log("Executable data engine not available")
+            return
+        }
+        execSource.connectSource(fullCmd)
     }
 
     // Refresh status from daemon's status file
@@ -69,7 +98,18 @@ PlasmoidItem {
             root.daemonState = status.state || "IDLE"
             root.daemonEnabled = status.enabled !== false
             root.remoteActive = status.remoteActive || false
-            root.secondaryOutput = status.secondaryOutput || "HDMI-A-1"
+            let reportedKeep = status.keepOutput || status.secondaryOutput || "HDMI-A-1"
+            if (root.pendingKeepOutput) {
+                let now = Date.now()
+                if (reportedKeep === root.pendingKeepOutput) {
+                    root.pendingKeepOutput = ""
+                } else if (now >= root.pendingKeepOutputDeadline) {
+                    root.pendingKeepOutput = ""
+                }
+            }
+            if (!root.pendingKeepOutput) {
+                root.keepOutput = reportedKeep
+            }
             root.rdpConnections = status.rdpConnections || 0
             root.vncConnections = status.vncConnections || 0
             root.daemonRunning = true
@@ -94,10 +134,12 @@ PlasmoidItem {
         root.scanningDisplays = false
     }
 
-    // Set secondary output
-    function setSecondaryOutput(outputName) {
-        root.secondaryOutput = outputName
-        sendCommand("SetSecondaryOutput", '"' + outputName + '"')
+    // Set output to keep
+    function setKeepOutput(outputName) {
+        root.keepOutput = outputName
+        root.pendingKeepOutput = outputName
+        root.pendingKeepOutputDeadline = Date.now() + 4000
+        sendCommand("SetKeepOutput", outputName)
     }
 
     // Toggle enabled state
@@ -272,8 +314,8 @@ PlasmoidItem {
                 }
 
                 PlasmaComponents.Label {
-                    Kirigami.FormData.label: "Secondary:"
-                    text: root.secondaryOutput
+                    Kirigami.FormData.label: "Keep enabled:"
+                    text: root.keepOutput
                     font.bold: true
                 }
             }
@@ -308,7 +350,7 @@ PlasmoidItem {
 
                     delegate: PlasmaComponents.ItemDelegate {
                         Layout.fillWidth: true
-                        highlighted: model.name === root.secondaryOutput
+                        highlighted: model.name === root.keepOutput
 
                         contentItem: RowLayout {
                             spacing: Kirigami.Units.smallSpacing
@@ -362,8 +404,8 @@ PlasmoidItem {
                                     }
 
                                     PlasmaComponents.Label {
-                                        visible: model.name === root.secondaryOutput
-                                        text: "Selected for remote"
+                                        visible: model.name === root.keepOutput
+                                        text: "Will keep"
                                         font.pointSize: Kirigami.Theme.smallFont.pointSize
                                         color: Kirigami.Theme.highlightColor
                                     }
@@ -371,7 +413,7 @@ PlasmoidItem {
                             }
 
                             Kirigami.Icon {
-                                visible: model.name === root.secondaryOutput
+                                visible: model.name === root.keepOutput
                                 source: "emblem-checked"
                                 Layout.preferredWidth: Kirigami.Units.iconSizes.small
                                 Layout.preferredHeight: Kirigami.Units.iconSizes.small
@@ -379,7 +421,7 @@ PlasmoidItem {
                         }
 
                         onClicked: {
-                            setSecondaryOutput(model.name)
+                            setKeepOutput(model.name)
                         }
                     }
                 }
