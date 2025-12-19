@@ -52,6 +52,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _build_kscreen_env() -> dict:
+    """Build an environment for kscreen-doctor when running under systemd."""
+    env = dict(os.environ)
+    uid = os.getuid()
+
+    runtime_dir = env.get("XDG_RUNTIME_DIR")
+    if not runtime_dir:
+        candidate = f"/run/user/{uid}"
+        if os.path.isdir(candidate):
+            runtime_dir = candidate
+            env["XDG_RUNTIME_DIR"] = runtime_dir
+            logger.debug("Set XDG_RUNTIME_DIR to %s", runtime_dir)
+
+    if runtime_dir and "DBUS_SESSION_BUS_ADDRESS" not in env:
+        bus_path = os.path.join(runtime_dir, "bus")
+        if os.path.exists(bus_path):
+            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus_path}"
+            logger.debug("Set DBUS_SESSION_BUS_ADDRESS to %s", env["DBUS_SESSION_BUS_ADDRESS"])
+
+    if runtime_dir and "WAYLAND_DISPLAY" not in env:
+        for name in ("wayland-0", "wayland-1", "wayland-2"):
+            if os.path.exists(os.path.join(runtime_dir, name)):
+                env["WAYLAND_DISPLAY"] = name
+                logger.debug("Set WAYLAND_DISPLAY to %s", name)
+                break
+        if "WAYLAND_DISPLAY" not in env:
+            try:
+                for entry in os.listdir(runtime_dir):
+                    if entry.startswith("wayland-"):
+                        env["WAYLAND_DISPLAY"] = entry
+                        logger.debug("Set WAYLAND_DISPLAY to %s", entry)
+                        break
+            except OSError:
+                pass
+
+    return env
+
+
 class State(Enum):
     """Daemon state machine states"""
     IDLE = auto()           # Normal operation, monitoring for connections
@@ -76,6 +114,7 @@ class DisplayConfig:
                 ["kscreen-doctor", "-j"],
                 capture_output=True,
                 text=True,
+                env=_build_kscreen_env(),
                 timeout=10
             )
             if result.returncode == 0:
@@ -137,6 +176,7 @@ class DisplayConfig:
                 ["kscreen-doctor", f"output.{self.secondary_output}.disable"],
                 capture_output=True,
                 text=True,
+                env=_build_kscreen_env(),
                 timeout=10
             )
             if result.returncode == 0:
@@ -192,6 +232,7 @@ class DisplayConfig:
                 ["kscreen-doctor"] + commands,
                 capture_output=True,
                 text=True,
+                env=_build_kscreen_env(),
                 timeout=10
             )
             if result.returncode == 0:
@@ -589,6 +630,7 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 ["kscreen-doctor", "-o"],
                 capture_output=True,
                 text=True,
+                env=_build_kscreen_env(),
                 timeout=10
             )
 
@@ -605,26 +647,33 @@ class RdpDisplaySwitcherService(dbus.service.Object):
 
             displays = []
             current = None
-            lines = result.stdout.split('\n')
+            lines = result.stdout.splitlines()
+
+            def _clean_line(line: str) -> str:
+                # Remove ANSI escape sequences and stray control chars.
+                cleaned = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)
+                cleaned = cleaned.replace("\x00", "")
+                return cleaned.strip()
 
             for line in lines:
-                line_stripped = line.strip()
+                line_stripped = _clean_line(line)
+                if not line_stripped:
+                    continue
 
                 # Match "Output: 1 HDMI-A-1 <uuid>" format
                 # The name is the third field, enabled/disabled comes on next lines
-                if line_stripped.startswith("Output:"):
+                match = re.search(r"Output:\s+(\d+)\s+(\S+)", line_stripped)
+                if match:
                     if current:
                         displays.append(current)
-                    parts = line_stripped.split()
-                    if len(parts) >= 3:
-                        current = {
-                            "index": int(parts[1]),
-                            "name": parts[2],
-                            "enabled": True,  # Default, will be updated
-                            "resolution": "",
-                            "refreshRate": "",
-                            "primary": False
-                        }
+                    current = {
+                        "index": int(match.group(1)),
+                        "name": match.group(2),
+                        "enabled": True,  # Default, will be updated
+                        "resolution": "",
+                        "refreshRate": "",
+                        "primary": False
+                    }
                     continue
 
                 if current:
