@@ -1,0 +1,27 @@
+{
+    "KPlugin": {
+        "Id": "org.kde.rdpdisplayswitcher",
+        "Name": "RDP Display Switcher",
+        "Description": "Automatically switch display configuration for remote desktop sessions",
+        "Icon": "preferences-desktop-remote-desktop",
+        "Authors": [
+            {
+                "Name": "RDP Display Switcher Project",
+                "Email": "rdpdisplayswitcher@example.com"
+            }
+        ],
+        "Category": "System Information",
+        "License": "GPL-3.0",
+        "Version": "1.0.0",
+        "Website": "https://github.com/yourusername/rdp-display-switcher"
+    },
+    "X-Plasma-API": "declarativeappletscript",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-Plasma-Provides": [
+        "org.kde.plasma.systemtray"
+    ],
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "SystemServices",
+    "KPackageStructure": "Plasma/Applet"
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=RDP Display Switcher Daemon
+Documentation=https://github.com/yourusername/rdp-display-switcher
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=org.kde.rdpdisplayswitcher
+ExecStart=/usr/bin/python3 /usr/share/rdp-display-switcher/rdp-display-manager.py
+Restart=on-failure
+RestartSec=5
+
+# Environment for Wayland/KDE
+Environment=QT_QPA_PLATFORM=wayland
+
+[Install]
+WantedBy=graphical-session.target

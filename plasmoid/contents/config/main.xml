@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="secondaryOutput" type="String">
+      <label>Secondary display output name</label>
+      <default>HDMI-A-1</default>
+    </entry>
+    <entry name="rdpPorts" type="String">
+      <label>RDP ports to monitor (comma-separated)</label>
+      <default>3389</default>
+    </entry>
+    <entry name="vncPorts" type="String">
+      <label>VNC ports to monitor (comma-separated)</label>
+      <default>5900,5901,5902</default>
+    </entry>
+    <entry name="debounceTime" type="Int">
+      <label>Debounce time in seconds</label>
+      <default>3</default>
+      <min>1</min>
+      <max>30</max>
+    </entry>
+    <entry name="showNotifications" type="Bool">
+      <label>Show notifications on state changes</label>
+      <default>true</default>
+    </entry>
+    <entry name="autoStart" type="Bool">
+      <label>Start daemon automatically with Plasma</label>
+      <default>true</default>
+    </entry>
+  </group>
+</kcfg>

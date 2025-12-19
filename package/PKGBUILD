@@ -1,0 +1,67 @@
+# Maintainer: Your Name <your.email@example.com>
+pkgname=rdp-display-switcher
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Automatically switch display configuration for remote desktop sessions on KDE Plasma"
+arch=('any')
+url="https://github.com/yourusername/rdp-display-switcher"
+license=('GPL-3.0-or-later')
+depends=(
+    'python'
+    'python-dbus'
+    'python-gobject'
+    'libkscreen'
+    'qt6-tools'
+    'plasma-desktop'
+)
+optdepends=(
+    'krfb: KDE VNC server support'
+    'plasma-krdp: KDE RDP server support (Plasma 6)'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/$pkgname-$pkgver"
+
+    # Install daemon
+    install -Dm755 daemon/rdp-display-manager.py \
+        "$pkgdir/usr/share/rdp-display-switcher/rdp-display-manager.py"
+
+    # Install systemd user service
+    install -Dm644 daemon/rdp-display-manager.service \
+        "$pkgdir/usr/lib/systemd/user/rdp-display-manager.service"
+
+    # Install plasmoid
+    local plasmoid_dir="$pkgdir/usr/share/plasma/plasmoids/org.kde.rdpdisplayswitcher"
+    install -dm755 "$plasmoid_dir"
+    install -dm755 "$plasmoid_dir/contents/ui"
+    install -dm755 "$plasmoid_dir/contents/config"
+
+    install -Dm644 plasmoid/metadata.json "$plasmoid_dir/metadata.json"
+    install -Dm644 plasmoid/contents/ui/main.qml "$plasmoid_dir/contents/ui/main.qml"
+    install -Dm644 plasmoid/contents/ui/configGeneral.qml "$plasmoid_dir/contents/ui/configGeneral.qml"
+    install -Dm644 plasmoid/contents/ui/configDisplay.qml "$plasmoid_dir/contents/ui/configDisplay.qml"
+    install -Dm644 plasmoid/contents/config/main.xml "$plasmoid_dir/contents/config/main.xml"
+    install -Dm644 plasmoid/contents/config/config.qml "$plasmoid_dir/contents/config/config.qml"
+
+    # Install documentation
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+post_install() {
+    echo ""
+    echo ">>> To enable the RDP Display Switcher daemon, run:"
+    echo "    systemctl --user enable --now rdp-display-manager"
+    echo ""
+    echo ">>> Then add the 'RDP Display Switcher' widget to your panel or system tray."
+    echo ""
+}
+
+post_upgrade() {
+    echo ""
+    echo ">>> Restart the daemon to apply changes:"
+    echo "    systemctl --user restart rdp-display-manager"
+    echo ""
+}
