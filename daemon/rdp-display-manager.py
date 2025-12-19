@@ -31,6 +31,9 @@ POLL_INTERVAL = 2  # seconds
 DEBOUNCE_TIME = 3  # seconds - wait before acting on connection changes
 STATE_FILE = Path.home() / ".local/state/rdp-display-switcher/state.json"
 CONFIG_FILE = Path.home() / ".config/rdp-display-switcher/config.json"
+CACHE_DIR = Path("/tmp/rdp-display-switcher")
+STATUS_FILE = CACHE_DIR / "status.json"
+DISPLAYS_FILE = CACHE_DIR / "displays.json"
 
 # DBus configuration
 DBUS_SERVICE_NAME = "org.kde.rdpdisplayswitcher"
@@ -336,6 +339,35 @@ class RdpDisplaySwitcherService(dbus.service.Object):
 
         logger.info("RDP Display Switcher daemon started")
 
+        # Write initial status
+        self._write_status_files()
+
+    def _write_status_files(self):
+        """Write status to cache files for plasmoid to read"""
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+            # Write status
+            connections = self.connection_monitor.check_connections()
+            status = {
+                "state": self.state.name,
+                "enabled": self.enabled,
+                "remoteActive": self.state == State.REMOTE_ACTIVE,
+                "secondaryOutput": self.display_config.secondary_output,
+                "rdpConnections": len(connections["rdp"]),
+                "vncConnections": len(connections["vnc"])
+            }
+            with open(STATUS_FILE, 'w') as f:
+                json.dump(status, f)
+
+            # Write displays
+            displays_json = self.GetDisplays()
+            with open(DISPLAYS_FILE, 'w') as f:
+                f.write(displays_json)
+
+        except Exception as e:
+            logger.error(f"Failed to write status files: {e}")
+
     def _load_config(self):
         """Load configuration from disk"""
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -384,6 +416,8 @@ class RdpDisplaySwitcherService(dbus.service.Object):
         while not self._stop_event.is_set():
             try:
                 self._check_connections()
+                # Update status files for plasmoid
+                GLib.idle_add(self._write_status_files)
             except Exception as e:
                 logger.error(f"Error in monitor loop: {e}")
 
@@ -473,6 +507,12 @@ class RdpDisplaySwitcherService(dbus.service.Object):
         self._stop_event.set()
         if self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=5)
+        # Clean up status files
+        try:
+            if STATUS_FILE.exists():
+                STATUS_FILE.unlink()
+        except Exception:
+            pass
         logger.info("Daemon stopped")
 
     # DBus Methods
@@ -539,6 +579,84 @@ class RdpDisplaySwitcherService(dbus.service.Object):
     def GetSecondaryOutput(self) -> str:
         """Get the secondary output name"""
         return self.display_config.secondary_output
+
+    @dbus.service.method(DBUS_INTERFACE, out_signature='s')
+    def GetDisplays(self) -> str:
+        """Get list of available displays as JSON string"""
+        try:
+            result = subprocess.run(
+                ["kscreen-doctor", "-o"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                return json.dumps([])
+
+            displays = []
+            current = None
+            lines = result.stdout.split('\n')
+
+            for line in lines:
+                line_stripped = line.strip()
+
+                # Match "Output: N DP-1 enabled" or "Output: N HDMI-A-1 disabled"
+                if line_stripped.startswith("Output:"):
+                    if current:
+                        displays.append(current)
+                    parts = line_stripped.split()
+                    if len(parts) >= 4:
+                        current = {
+                            "index": int(parts[1]),
+                            "name": parts[2],
+                            "enabled": parts[3] == "enabled",
+                            "resolution": "",
+                            "refreshRate": "",
+                            "primary": False
+                        }
+                    continue
+
+                if current:
+                    # Look for current mode (marked with *)
+                    if '@' in line_stripped and '*' in line_stripped:
+                        # e.g., "2560x1440@144*"
+                        import re
+                        match = re.search(r'(\d+x\d+)@(\d+)\*', line_stripped)
+                        if match:
+                            current["resolution"] = match.group(1)
+                            current["refreshRate"] = match.group(2)
+
+                    # Check for Geometry line
+                    if line_stripped.startswith("Geometry:"):
+                        import re
+                        match = re.search(r'Geometry:\s+\d+,\d+\s+(\d+x\d+)', line_stripped)
+                        if match and not current["resolution"]:
+                            current["resolution"] = match.group(1)
+
+                    # Check for primary
+                    if "primary" in line_stripped.lower():
+                        current["primary"] = True
+
+            if current:
+                displays.append(current)
+
+            return json.dumps(displays)
+        except Exception as e:
+            logger.error(f"Failed to get displays: {e}")
+            return json.dumps([])
+
+    @dbus.service.method(DBUS_INTERFACE, out_signature='s')
+    def GetFullStatus(self) -> str:
+        """Get full status as JSON for plasmoid"""
+        connections = self.connection_monitor.check_connections()
+        return json.dumps({
+            "state": self.state.name,
+            "enabled": self.enabled,
+            "remoteActive": self.state == State.REMOTE_ACTIVE,
+            "secondaryOutput": self.display_config.secondary_output,
+            "rdpConnections": len(connections["rdp"]),
+            "vncConnections": len(connections["vnc"])
+        })
 
     # DBus Signals
 

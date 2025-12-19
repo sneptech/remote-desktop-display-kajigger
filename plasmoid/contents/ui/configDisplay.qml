@@ -1,6 +1,5 @@
 /*
  * Display configuration page for RDP Display Switcher
- *
  * SPDX-License-Identifier: GPL-3.0
  */
 
@@ -9,27 +8,11 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
-import org.kde.plasma.plasma5support as Plasma5Support
 
 KCM.SimpleKCM {
     id: configDisplay
 
-    property alias cfg_secondaryOutput: secondaryOutputCombo.editText
-    property var availableOutputs: []
-
-    // Fetch available outputs on load
-    Plasma5Support.DataSource {
-        id: outputsSource
-        engine: "executable"
-        connectedSources: ["kscreen-doctor -o 2>/dev/null | grep 'Output:' | awk '{print $2}'"]
-
-        onNewData: (sourceName, data) => {
-            if (data.stdout) {
-                let outputs = data.stdout.trim().split('\n').filter(o => o.length > 0)
-                configDisplay.availableOutputs = outputs
-            }
-        }
-    }
+    property alias cfg_secondaryOutput: secondaryOutputField.text
 
     Kirigami.FormLayout {
         anchors.fill: parent
@@ -39,27 +22,14 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Display Configuration")
         }
 
-        QQC2.ComboBox {
-            id: secondaryOutputCombo
+        QQC2.TextField {
+            id: secondaryOutputField
             Kirigami.FormData.label: i18n("Secondary display:")
-            editable: true
-            model: configDisplay.availableOutputs.length > 0 ? configDisplay.availableOutputs : ["HDMI-A-1", "HDMI-A-2", "DP-2", "DP-3"]
-
-            Component.onCompleted: {
-                // Set current value
-                if (cfg_secondaryOutput) {
-                    let idx = find(cfg_secondaryOutput)
-                    if (idx >= 0) {
-                        currentIndex = idx
-                    } else {
-                        editText = cfg_secondaryOutput
-                    }
-                }
-            }
+            placeholderText: "HDMI-A-1"
         }
 
         QQC2.Label {
-            text: i18n("The display that will be disabled during remote sessions")
+            text: i18n("The display output name that will be disabled during remote sessions.\nCommon names: HDMI-A-1, HDMI-A-2, DP-1, DP-2, DP-3")
             font.pointSize: Kirigami.Theme.smallFont.pointSize
             opacity: 0.7
             Layout.fillWidth: true
@@ -68,42 +38,14 @@ KCM.SimpleKCM {
 
         Kirigami.Separator {
             Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Current Configuration")
+            Kirigami.FormData.label: i18n("How to find your display names")
         }
 
-        // Show current display configuration
-        Repeater {
-            model: configDisplay.availableOutputs
-
-            delegate: RowLayout {
-                Kirigami.FormData.label: modelData === cfg_secondaryOutput ? i18n("Secondary:") : i18n("Output:")
-                spacing: Kirigami.Units.smallSpacing
-
-                QQC2.Label {
-                    text: modelData
-                    font.bold: modelData === cfg_secondaryOutput
-                }
-
-                QQC2.Label {
-                    text: modelData === cfg_secondaryOutput ? i18n("(will be disabled)") : ""
-                    opacity: 0.7
-                    font.italic: true
-                }
-            }
-        }
-
-        Item {
-            Kirigami.FormData.isSection: true
-            height: Kirigami.Units.largeSpacing
-        }
-
-        QQC2.Button {
-            text: i18n("Refresh Outputs")
-            icon.name: "view-refresh"
-            onClicked: {
-                outputsSource.disconnectSource(outputsSource.connectedSources[0])
-                outputsSource.connectSource("kscreen-doctor -o 2>/dev/null | grep 'Output:' | awk '{print $2}'")
-            }
+        QQC2.Label {
+            text: i18n("Run this command in a terminal to see your display outputs:\n\nkscreen-doctor -o\n\nLook for lines starting with 'Output:' followed by the display name.")
+            font.family: "monospace"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
         }
     }
 }
