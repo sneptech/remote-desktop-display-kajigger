@@ -9,7 +9,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
-import org.kde.plasma.core as PlasmaCore
+import org.kde.plasma.plasma5support as Plasma5Support
 
 KCM.SimpleKCM {
     id: configDisplay
@@ -18,7 +18,7 @@ KCM.SimpleKCM {
     property var availableOutputs: []
 
     // Fetch available outputs on load
-    PlasmaCore.DataSource {
+    Plasma5Support.DataSource {
         id: outputsSource
         engine: "executable"
         connectedSources: ["kscreen-doctor -o 2>/dev/null | grep 'Output:' | awk '{print $2}'"]
