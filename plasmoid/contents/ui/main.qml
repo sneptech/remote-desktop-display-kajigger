@@ -27,17 +27,117 @@ PlasmoidItem {
     property int vncConnections: 0
     property bool daemonRunning: false
     property string secondaryOutput: "HDMI-A-1"
+    property bool scanningDisplays: false
 
-    // DBus interface
-    readonly property var dbusService: Qt.createQmlObject(`
-        import QtQuick
-        import org.kde.plasma.core as PlasmaCore
+    // Display list model
+    ListModel {
+        id: displayModel
+    }
 
-        PlasmaCore.DataSource {
-            engine: "executable"
-            connectedSources: []
+    // DBus/command execution interface
+    PlasmaCore.DataSource {
+        id: executable
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: (sourceName, data) => {
+            let stdout = data.stdout ? data.stdout.trim() : ""
+            let stderr = data.stderr ? data.stderr.trim() : ""
+
+            // Handle kscreen-doctor output for display scanning
+            if (sourceName.includes("kscreen-doctor -o")) {
+                parseDisplayOutput(stdout)
+                root.scanningDisplays = false
+            }
+            // Handle daemon state check
+            else if (sourceName.includes("GetState")) {
+                if (stdout === "DAEMON_NOT_RUNNING" || stdout === "") {
+                    root.daemonRunning = false
+                } else {
+                    root.daemonRunning = true
+                    root.daemonState = stdout
+                    root.remoteActive = (stdout === "REMOTE_ACTIVE")
+                }
+            }
+
+            // Clean up completed sources
+            disconnectSource(sourceName)
         }
-    `, root)
+    }
+
+    // Parse kscreen-doctor -o output
+    function parseDisplayOutput(output: string) {
+        displayModel.clear()
+
+        let lines = output.split('\n')
+        let currentOutput = null
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim()
+
+            // Match "Output: N DP-1 enabled" or similar
+            let outputMatch = line.match(/^Output:\s+(\d+)\s+(\S+)\s+(enabled|disabled)/)
+            if (outputMatch) {
+                if (currentOutput) {
+                    displayModel.append(currentOutput)
+                }
+                currentOutput = {
+                    index: parseInt(outputMatch[1]),
+                    name: outputMatch[2],
+                    enabled: outputMatch[3] === "enabled",
+                    resolution: "",
+                    refreshRate: "",
+                    position: "",
+                    primary: false
+                }
+                continue
+            }
+
+            // If we have a current output, look for its properties
+            if (currentOutput) {
+                // Match resolution like "Modes: 2560x1440@144* ..." (the * indicates current)
+                let modeMatch = line.match(/(\d+x\d+)@(\d+)\*/)
+                if (modeMatch) {
+                    currentOutput.resolution = modeMatch[1]
+                    currentOutput.refreshRate = modeMatch[2]
+                }
+
+                // Match "Geometry: 0,0 2560x1440"
+                let geoMatch = line.match(/Geometry:\s+(\d+),(\d+)\s+(\d+x\d+)/)
+                if (geoMatch) {
+                    currentOutput.position = `${geoMatch[1]},${geoMatch[2]}`
+                    if (!currentOutput.resolution) {
+                        currentOutput.resolution = geoMatch[3]
+                    }
+                }
+
+                // Check for primary
+                if (line.includes("primary")) {
+                    currentOutput.primary = true
+                }
+            }
+        }
+
+        // Don't forget the last output
+        if (currentOutput) {
+            displayModel.append(currentOutput)
+        }
+
+        console.log("Parsed " + displayModel.count + " displays")
+    }
+
+    // Scan for displays
+    function scanDisplays() {
+        root.scanningDisplays = true
+        executable.connectSource("kscreen-doctor -o 2>/dev/null")
+    }
+
+    // Set secondary output via daemon
+    function setSecondaryOutput(outputName: string) {
+        root.secondaryOutput = outputName
+        let cmd = `qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher org.kde.rdpdisplayswitcher.SetSecondaryOutput "${outputName}"`
+        executable.connectSource(cmd)
+    }
 
     // State-dependent icon
     readonly property string stateIcon: {
@@ -110,10 +210,10 @@ PlasmoidItem {
     fullRepresentation: PlasmaExtras.Representation {
         id: fullRep
 
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 18
-        Layout.minimumHeight: Kirigami.Units.gridUnit * 14
-        Layout.preferredWidth: Kirigami.Units.gridUnit * 20
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 16
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 20
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 18
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 22
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 22
 
         header: PlasmaExtras.PlasmoidHeading {
             RowLayout {
@@ -187,7 +287,149 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     Kirigami.FormData.label: "Secondary:"
                     text: root.secondaryOutput
+                    font.bold: true
                 }
+            }
+
+            Kirigami.Separator {
+                Layout.fillWidth: true
+            }
+
+            // Displays section
+            PlasmaExtras.Heading {
+                level: 4
+                text: "Displays"
+            }
+
+            // Scan button
+            PlasmaComponents.Button {
+                text: root.scanningDisplays ? "Scanning..." : "Scan Displays"
+                icon.name: root.scanningDisplays ? "view-refresh" : "monitor"
+                enabled: !root.scanningDisplays
+                Layout.fillWidth: true
+                onClicked: scanDisplays()
+
+                // Spinning animation when scanning
+                Kirigami.Icon {
+                    visible: root.scanningDisplays
+                    source: "view-refresh"
+                    anchors.left: parent.left
+                    anchors.leftMargin: Kirigami.Units.smallSpacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Kirigami.Units.iconSizes.small
+                    height: width
+
+                    RotationAnimation on rotation {
+                        running: root.scanningDisplays
+                        from: 0
+                        to: 360
+                        duration: 1000
+                        loops: Animation.Infinite
+                    }
+                }
+            }
+
+            // Display list
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+                visible: displayModel.count > 0
+
+                Repeater {
+                    model: displayModel
+
+                    delegate: PlasmaComponents.Button {
+                        Layout.fillWidth: true
+
+                        contentItem: RowLayout {
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                source: model.primary ? "monitor-symbolic" : "video-display"
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                                color: model.name === root.secondaryOutput ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+
+                                RowLayout {
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    PlasmaComponents.Label {
+                                        text: model.name
+                                        font.bold: true
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        text: model.resolution ? `(${model.resolution})` : ""
+                                        opacity: 0.8
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        visible: model.refreshRate !== ""
+                                        text: `@ ${model.refreshRate}Hz`
+                                        opacity: 0.6
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    }
+                                }
+
+                                RowLayout {
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    PlasmaComponents.Label {
+                                        visible: model.primary
+                                        text: "Primary"
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        color: Kirigami.Theme.positiveTextColor
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        visible: !model.enabled
+                                        text: "Disabled"
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        color: Kirigami.Theme.neutralTextColor
+                                    }
+
+                                    PlasmaComponents.Label {
+                                        visible: model.name === root.secondaryOutput
+                                        text: "Will disable for remote"
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        color: Kirigami.Theme.negativeTextColor
+                                    }
+                                }
+                            }
+
+                            // Checkmark for selected secondary
+                            Kirigami.Icon {
+                                visible: model.name === root.secondaryOutput
+                                source: "checkbox"
+                                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                                color: Kirigami.Theme.negativeTextColor
+                            }
+                        }
+
+                        onClicked: {
+                            setSecondaryOutput(model.name)
+                        }
+
+                        // Highlight current secondary selection
+                        highlighted: model.name === root.secondaryOutput
+                    }
+                }
+            }
+
+            // Hint when no displays scanned
+            PlasmaComponents.Label {
+                visible: displayModel.count === 0
+                text: "Click 'Scan Displays' to detect connected monitors"
+                opacity: 0.6
+                font.italic: true
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
             }
 
             Kirigami.Separator {
@@ -268,7 +510,7 @@ PlasmoidItem {
     function callDbus(method: string, args: string = "") {
         let cmd = `qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher org.kde.rdpdisplayswitcher.${method}`
         if (args) cmd += ` ${args}`
-        dbusService.connectSource(cmd)
+        executable.connectSource(cmd)
     }
 
     function toggleEnabled() {
@@ -285,33 +527,12 @@ PlasmoidItem {
     }
 
     function restartDaemon() {
-        dbusService.connectSource("systemctl --user restart rdp-display-manager")
+        executable.connectSource("systemctl --user restart rdp-display-manager")
     }
 
     function refreshStatus() {
         // Check if daemon is running
-        dbusService.connectSource("qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher org.kde.rdpdisplayswitcher.GetState 2>/dev/null || echo 'DAEMON_NOT_RUNNING'")
-    }
-
-    // Handle command execution results
-    Connections {
-        target: dbusService
-        function onNewData(sourceName, data) {
-            let output = data.stdout ? data.stdout.trim() : ""
-
-            if (sourceName.includes("GetState")) {
-                if (output === "DAEMON_NOT_RUNNING" || output === "") {
-                    root.daemonRunning = false
-                } else {
-                    root.daemonRunning = true
-                    root.daemonState = output
-                    root.remoteActive = (output === "REMOTE_ACTIVE")
-                }
-            }
-
-            // Clean up completed sources
-            dbusService.disconnectSource(sourceName)
-        }
+        executable.connectSource("qdbus org.kde.rdpdisplayswitcher /org/kde/rdpdisplayswitcher org.kde.rdpdisplayswitcher.GetState 2>/dev/null || echo 'DAEMON_NOT_RUNNING'")
     }
 
     // Notification helper
@@ -335,9 +556,11 @@ PlasmoidItem {
         onTriggered: refreshStatus()
     }
 
-    // Initial status check
+    // Initial status check and display scan
     Component.onCompleted: {
         refreshStatus()
+        // Auto-scan displays on first open
+        scanDisplays()
     }
 
     // DBus signal monitoring using a DataSource
