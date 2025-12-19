@@ -583,6 +583,7 @@ class RdpDisplaySwitcherService(dbus.service.Object):
     @dbus.service.method(DBUS_INTERFACE, out_signature='s')
     def GetDisplays(self) -> str:
         """Get list of available displays as JSON string"""
+        import re
         try:
             result = subprocess.run(
                 ["kscreen-doctor", "-o"],
@@ -591,6 +592,7 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                 timeout=10
             )
             if result.returncode != 0:
+                logger.error(f"kscreen-doctor failed: {result.stderr}")
                 return json.dumps([])
 
             displays = []
@@ -600,16 +602,17 @@ class RdpDisplaySwitcherService(dbus.service.Object):
             for line in lines:
                 line_stripped = line.strip()
 
-                # Match "Output: N DP-1 enabled" or "Output: N HDMI-A-1 disabled"
+                # Match "Output: 1 HDMI-A-1 <uuid>" format
+                # The name is the third field, enabled/disabled comes on next lines
                 if line_stripped.startswith("Output:"):
                     if current:
                         displays.append(current)
                     parts = line_stripped.split()
-                    if len(parts) >= 4:
+                    if len(parts) >= 3:
                         current = {
                             "index": int(parts[1]),
                             "name": parts[2],
-                            "enabled": parts[3] == "enabled",
+                            "enabled": True,  # Default, will be updated
                             "resolution": "",
                             "refreshRate": "",
                             "primary": False
@@ -617,29 +620,37 @@ class RdpDisplaySwitcherService(dbus.service.Object):
                     continue
 
                 if current:
+                    # Check for enabled/disabled on its own line
+                    if line_stripped == "enabled":
+                        current["enabled"] = True
+                    elif line_stripped == "disabled":
+                        current["enabled"] = False
+
+                    # Check for priority 1 (primary display)
+                    if line_stripped.startswith("priority 1"):
+                        current["primary"] = True
+
                     # Look for current mode (marked with *)
-                    if '@' in line_stripped and '*' in line_stripped:
-                        # e.g., "2560x1440@144*"
-                        import re
-                        match = re.search(r'(\d+x\d+)@(\d+)\*', line_stripped)
+                    # Format: "2:1920x1080@144.00*" or similar
+                    if "Modes:" in line_stripped or '@' in line_stripped:
+                        # Find pattern like 1920x1080@144.00* (with * at the end)
+                        match = re.search(r'(\d+x\d+)@([\d.]+)\*', line_stripped)
                         if match:
                             current["resolution"] = match.group(1)
-                            current["refreshRate"] = match.group(2)
+                            # Take just the integer part of refresh rate
+                            refresh = match.group(2)
+                            current["refreshRate"] = refresh.split('.')[0]
 
-                    # Check for Geometry line
+                    # Check for Geometry line as fallback for resolution
                     if line_stripped.startswith("Geometry:"):
-                        import re
                         match = re.search(r'Geometry:\s+\d+,\d+\s+(\d+x\d+)', line_stripped)
                         if match and not current["resolution"]:
                             current["resolution"] = match.group(1)
 
-                    # Check for primary
-                    if "primary" in line_stripped.lower():
-                        current["primary"] = True
-
             if current:
                 displays.append(current)
 
+            logger.info(f"Found {len(displays)} displays: {[d['name'] for d in displays]}")
             return json.dumps(displays)
         except Exception as e:
             logger.error(f"Failed to get displays: {e}")
