@@ -15,6 +15,7 @@ DAEMON_DIR="$HOME/.local/share/rdp-display-switcher"
 SERVICE_DIR="$HOME/.config/systemd/user"
 PLASMOID_DIR="$HOME/.local/share/plasma/plasmoids/org.kde.rdpdisplayswitcher"
 STATE_DIR="$HOME/.local/state/rdp-display-switcher"
+ENV_DIR="$HOME/.config/environment.d"
 
 install() {
     echo "Installing RDP Display Switcher..."
@@ -55,12 +56,26 @@ install() {
         systemctl --user enable --now rdp-display-manager
     fi
 
+    # Set environment variable for QML file access
+    echo "  -> Setting QML environment"
+    mkdir -p "$ENV_DIR"
+    echo "QML_XHR_ALLOW_FILE_READ=1" > "$ENV_DIR/rdp-display-switcher.conf"
+
+    # Check daemon status
     echo ""
-    echo "Done! Restart plasmashell to reload the widget:"
-    echo "  plasmashell --replace &"
+    echo "Daemon status:"
+    systemctl --user status rdp-display-manager --no-pager || true
+
     echo ""
-    echo "Or run this to do it now:"
-    echo "  kquitapp6 plasmashell && kstart plasmashell"
+    echo "=========================================="
+    echo "Installation complete!"
+    echo ""
+    echo "IMPORTANT: You need to LOG OUT and LOG BACK IN"
+    echo "for the QML environment variable to take effect."
+    echo ""
+    echo "After logging back in, the plasmoid will be able"
+    echo "to read the daemon's status files."
+    echo "=========================================="
 }
 
 uninstall() {
@@ -74,6 +89,7 @@ uninstall() {
     rm -rf "$PLASMOID_DIR"
     rm -rf "$STATE_DIR"
     rm -rf "/tmp/rdp-display-switcher"
+    rm -f "$ENV_DIR/rdp-display-switcher.conf"
 
     systemctl --user daemon-reload
 

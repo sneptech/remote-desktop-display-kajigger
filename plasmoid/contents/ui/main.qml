@@ -444,15 +444,11 @@ PlasmoidItem {
             RowLayout {
                 Layout.fillWidth: true
 
-                PlasmaComponents.Button {
-                    text: "Start Daemon"
-                    icon.name: "system-run"
+                PlasmaComponents.Label {
                     visible: !root.daemonRunning
-                    flat: true
-                    onClicked: {
-                        // Try to start via systemctl
-                        console.log("Starting daemon...")
-                    }
+                    text: "Run: systemctl --user start rdp-display-manager"
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    opacity: 0.7
                 }
 
                 Item { Layout.fillWidth: true }
@@ -481,8 +477,8 @@ PlasmoidItem {
     }
 
     // Refresh when popup opens
-    onExpandedChanged: {
-        if (expanded) {
+    onExpandedChanged: function() {
+        if (root.expanded) {
             refreshStatus()
             if (displayModel.count === 0) {
                 requestDisplayScan()
